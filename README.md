@@ -9,7 +9,7 @@ Workspace-wide diagnostics for Neovim LSP. Opens all workspace files in the back
 - File list caching with configurable TTL
 - Early filtering by extension and ignore patterns
 - Waits for LSP server to initialize before triggering
-- Progress notifications
+- Progress notifications (supports fidget.nvim, noice.nvim via LSP progress protocol)
 
 ## Requirements
 
@@ -55,8 +55,11 @@ require('workspace-diagnostics').setup({
   -- Delay in ms between processing chunks
   chunk_delay = 1,
 
-  -- Show start/complete notifications
+  -- Show start/complete notifications via vim.notify()
   notify_progress = true,
+
+  -- Use LSP progress protocol (works with fidget.nvim, noice.nvim, etc.)
+  lsp_progress = true,
 
   -- Only run workspace diagnostics for these LSP servers
   allowed_lsps = {
@@ -136,6 +139,25 @@ For smoother UI (slower total time):
   chunk_delay = 10, -- Longer delay between chunks
 }
 ```
+
+## Progress UI integration
+
+This plugin supports the LSP `$/progress` protocol, which means it works automatically with:
+
+- [fidget.nvim](https://github.com/j-hui/fidget.nvim)
+- [noice.nvim](https://github.com/folke/noice.nvim)
+- Any other plugin that subscribes to LSP progress
+
+Progress is reported per-chunk to avoid UI spam. The two notification options are mutually exclusive - `lsp_progress` takes precedence when enabled:
+
+```lua
+{
+  lsp_progress = true,     -- (default) LSP $/progress protocol for fidget, noice, etc.
+  notify_progress = true,  -- vim.notify() fallback (only used if lsp_progress = false)
+}
+```
+
+If you don't use fidget.nvim or similar, set `lsp_progress = false` to use `vim.notify()` instead.
 
 ## License
 

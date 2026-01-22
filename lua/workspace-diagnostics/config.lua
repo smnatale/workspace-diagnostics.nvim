@@ -16,8 +16,11 @@ M.defaults = {
 	-- Delay in ms between processing chunks
 	chunk_delay = 1,
 
-	-- Show start/complete notifications
+	-- Show start/complete notifications via vim.notify()
 	notify_progress = true,
+
+	-- Use LSP progress protocol (works with fidget.nvim, noice.nvim, etc.)
+	lsp_progress = true,
 
 	-- Only run workspace diagnostics for these LSP servers
 	allowed_lsps = {

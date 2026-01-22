@@ -11,6 +11,43 @@ local config = nil
 local triggered_clients = {}
 local file_cache = { files = nil, timestamp = 0 }
 local processing_clients = {} -- Per-client processing state (keyed by client.id)
+local progress_token_counter = 0
+
+-------------------------------------------------------------------------------
+-- LSP Progress reporting (for fidget.nvim, noice.nvim, etc.)
+-------------------------------------------------------------------------------
+
+--- Create a unique progress token
+---@return string
+local function create_progress_token()
+	progress_token_counter = progress_token_counter + 1
+	return "workspace-diagnostics-" .. progress_token_counter
+end
+
+--- Report progress via LSP $/progress protocol
+---@param client table LSP client
+---@param token string Progress token
+---@param kind string "begin", "report", or "end"
+---@param title string Progress title
+---@param message string|nil Progress message
+---@param percentage number|nil Progress percentage (0-100)
+local function report_lsp_progress(client, token, kind, title, message, percentage)
+	local progress_data = {
+		token = token,
+		value = {
+			kind = kind,
+			title = title,
+			message = message,
+			percentage = percentage,
+		},
+	}
+
+	-- Trigger Neovim's LSP progress handler (fidget.nvim hooks into this)
+	local handler = vim.lsp.handlers["$/progress"]
+	if handler then
+		handler(nil, progress_data, { client_id = client.id })
+	end
+end
 
 -------------------------------------------------------------------------------
 -- Helpers
@@ -106,9 +143,13 @@ local function process_files_async(files, client, bufnr, on_complete)
 	local total = #files
 	local processed = 0
 	local idx = 1
+	local progress_token = create_progress_token()
+	local progress_title = string.format("Workspace Diagnostics [%s]", client.name)
 
-	-- Notify start
-	if config.notify_progress then
+	-- Notify start (use LSP progress if enabled, otherwise vim.notify)
+	if config.lsp_progress then
+		report_lsp_progress(client, progress_token, "begin", progress_title, "Starting...", 0)
+	elseif config.notify_progress then
 		vim.notify(
 			string.format("Workspace diagnostics [%s]: processing %d files...", client.name, total),
 			vim.log.levels.INFO
@@ -118,7 +159,10 @@ local function process_files_async(files, client, bufnr, on_complete)
 	local function process_chunk()
 		if idx > total then
 			vim.schedule(function()
-				if config.notify_progress then
+				-- Notify complete (use LSP progress if enabled, otherwise vim.notify)
+				if config.lsp_progress then
+					report_lsp_progress(client, progress_token, "end", progress_title, "Complete", 100)
+				elseif config.notify_progress then
 					vim.notify(
 						string.format("Workspace diagnostics [%s]: complete (%d files)", client.name, total),
 						vim.log.levels.INFO
@@ -143,6 +187,10 @@ local function process_files_async(files, client, bufnr, on_complete)
 				processed = processed + 1
 				if pending == 0 then
 					idx = chunk_end + 1
+					if config.lsp_progress then
+						local percentage = math.floor((processed / total) * 100)
+						report_lsp_progress(client, progress_token, "report", progress_title, string.format("%d/%d files", processed, total), percentage)
+					end
 					vim.defer_fn(process_chunk, config.chunk_delay)
 				end
 			else
@@ -169,6 +217,10 @@ local function process_files_async(files, client, bufnr, on_complete)
 
 						if pending == 0 then
 							idx = chunk_end + 1
+							if config.lsp_progress then
+								local percentage = math.floor((processed / total) * 100)
+								report_lsp_progress(client, progress_token, "report", progress_title, string.format("%d/%d files", processed, total), percentage)
+							end
 							vim.defer_fn(process_chunk, config.chunk_delay)
 						end
 					end)
