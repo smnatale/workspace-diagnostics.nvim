@@ -1,0 +1,310 @@
+*workspace-diagnostics.txt*  Workspace-wide diagnostics for Neovim LSP
+
+Author:  Samuel Natale
+License: MIT
+
+==============================================================================
+CONTENTS                                      *workspace-diagnostics-contents*
+
+  1. Introduction ........................ |workspace-diagnostics-introduction|
+  2. Requirements ........................ |workspace-diagnostics-requirements|
+  3. Installation ........................ |workspace-diagnostics-installation|
+  4. Configuration ....................... |workspace-diagnostics-configuration|
+  5. Commands ............................ |workspace-diagnostics-commands|
+  6. API ................................. |workspace-diagnostics-api|
+  7. How It Works ........................ |workspace-diagnostics-how-it-works|
+  8. Performance ......................... |workspace-diagnostics-performance|
+
+==============================================================================
+1. INTRODUCTION                           *workspace-diagnostics-introduction*
+
+workspace-diagnostics.nvim opens all workspace files in the background to
+trigger LSP diagnostics across your entire project. This allows you to see
+all errors and warnings in your project without having to open each file
+manually.
+
+Features:
+- Async file reading with `vim.uv` (non-blocking)
+- Chunked processing to keep UI responsive
+- File list caching with configurable TTL
+- Early filtering by extension and ignore patterns
+- Waits for LSP server to initialize before triggering
+- Progress notifications
+- Per-client processing (multiple LSPs can process simultaneously)
+
+==============================================================================
+2. REQUIREMENTS                           *workspace-diagnostics-requirements*
+
+- Neovim >= 0.10.0 (required for `vim.uv`)
+- Git (for `git ls-files` to collect workspace files)
+- At least one LSP server configured
+
+Run `:checkhealth workspace-diagnostics` to verify your setup.
+
+==============================================================================
+3. INSTALLATION                           *workspace-diagnostics-installation*
+
+Using lazy.nvim: >lua
+  {
+    'yourusername/workspace-diagnostics.nvim',
+    event = 'LspAttach',
+    opts = {},
+  }
+<
+
+Using packer.nvim: >lua
+  use {
+    'yourusername/workspace-diagnostics.nvim',
+    config = function()
+      require('workspace-diagnostics').setup()
+    end
+  }
+<
+
+==============================================================================
+4. CONFIGURATION                         *workspace-diagnostics-configuration*
+
+Call the setup function with your preferred options. All options are optional
+and have sensible defaults.
+
+>lua
+  require('workspace-diagnostics').setup({
+    -- Trigger workspace diagnostics automatically on LspAttach
+    auto_trigger = true,
+
+    -- File list cache TTL in seconds
+    cache_ttl = 300,
+
+    -- Number of files to process per async tick
+    chunk_size = 10,
+
+    -- Delay in ms between processing chunks
+    chunk_delay = 1,
+
+    -- Show start/complete notifications
+    notify_progress = true,
+
+    -- Only run workspace diagnostics for these LSP servers
+    allowed_lsps = {
+      'ts_ls',
+      'eslint',
+    },
+
+    -- File extensions to include
+    allowed_extensions = {
+      '.ts',
+      '.tsx',
+      '.js',
+      '.jsx',
+    },
+
+    -- Directory patterns to ignore
+    ignore_dirs = {
+      '/.yarn/',
+      '/node_modules/',
+      '/dist/',
+      '/build/',
+    },
+  })
+<
+
+                                       *workspace-diagnostics-config-auto_trigger*
+auto_trigger ~
+  Type: `boolean`
+  Default: `true`
+
+  When enabled, workspace diagnostics will automatically trigger when an
+  allowed LSP client attaches to a buffer.
+
+                                         *workspace-diagnostics-config-cache_ttl*
+cache_ttl ~
+  Type: `number`
+  Default: `300`
+
+  Time-to-live for the file list cache in seconds. The plugin caches the
+  result of `git ls-files` to avoid repeated shell calls.
+
+                                        *workspace-diagnostics-config-chunk_size*
+chunk_size ~
+  Type: `number`
+  Default: `10`
+
+  Number of files to process in each async tick. Higher values process
+  faster but may cause UI stuttering.
+
+                                       *workspace-diagnostics-config-chunk_delay*
+chunk_delay ~
+  Type: `number`
+  Default: `1`
+
+  Delay in milliseconds between processing chunks. Higher values give the
+  UI more time to remain responsive.
+
+                                    *workspace-diagnostics-config-notify_progress*
+notify_progress ~
+  Type: `boolean`
+  Default: `true`
+
+  Show notifications when processing starts and completes.
+
+                                       *workspace-diagnostics-config-allowed_lsps*
+allowed_lsps ~
+  Type: `string[]`
+  Default: `{ 'ts_ls', 'eslint' }`
+
+  List of LSP server names for which workspace diagnostics should run.
+  Other LSP servers will be ignored.
+
+                                 *workspace-diagnostics-config-allowed_extensions*
+allowed_extensions ~
+  Type: `string[]`
+  Default: `{ '.ts', '.tsx', '.js', '.jsx' }`
+
+  File extensions to include when collecting workspace files. Files with
+  other extensions will be skipped.
+
+                                       *workspace-diagnostics-config-ignore_dirs*
+ignore_dirs ~
+  Type: `string[]`
+  Default: `{ '/.yarn/', '/node_modules/', '/dist/', '/build/' }`
+
+  Directory patterns to ignore when collecting files. Patterns are matched
+  using plain string matching (not glob patterns).
+
+==============================================================================
+5. COMMANDS                                   *workspace-diagnostics-commands*
+
+                                                       *:WorkspaceDiagnostics*
+:WorkspaceDiagnostics
+  Trigger workspace diagnostics for all allowed LSP clients attached to
+  the current buffer. This is useful when `auto_trigger` is disabled or
+  when you want to manually re-trigger diagnostics.
+
+                                                *:WorkspaceDiagnosticsRefresh*
+:WorkspaceDiagnosticsRefresh
+  Force refresh workspace diagnostics. This clears the file cache and
+  resets the triggered state for all clients, then re-triggers diagnostics.
+  Use this after adding new files or switching branches.
+
+                                                 *:WorkspaceDiagnosticsStatus*
+:WorkspaceDiagnosticsStatus
+  Display current status information including:
+  - Number of cached files
+  - Cache age in seconds
+  - Which clients are currently processing
+  - Number of triggered clients
+
+==============================================================================
+6. API                                               *workspace-diagnostics-api*
+
+The plugin exposes the following Lua API:
+
+                                                *workspace-diagnostics.setup()*
+setup({config})
+  Initialize the plugin with optional configuration. Must be called before
+  using other functions.
+
+  Parameters: ~
+    {config}  (table|nil)  Configuration options (see |workspace-diagnostics-configuration|)
+
+  Example: >lua
+    require('workspace-diagnostics').setup({
+      auto_trigger = false,
+      chunk_size = 20,
+    })
+<
+
+                                              *workspace-diagnostics.trigger()*
+trigger({client}, {bufnr}, {force_refresh})
+  Manually trigger workspace diagnostics for a specific LSP client.
+
+  Parameters: ~
+    {client}         (table)       LSP client object
+    {bufnr}          (number)      Buffer number
+    {force_refresh}  (boolean|nil) Force refresh the file cache
+
+  Example: >lua
+    local client = vim.lsp.get_clients({ name = 'ts_ls' })[1]
+    if client then
+      require('workspace-diagnostics').trigger(client, 0, false)
+    end
+<
+
+                                               *workspace-diagnostics.status()*
+status()
+  Get current status information.
+
+  Returns: ~
+    (table) Status table with fields:
+      - cached_files (number): Number of files in cache
+      - cache_age (number): Cache age in seconds
+      - processing_clients (table): List of client IDs currently processing
+      - triggered_clients (number): Count of triggered clients
+
+  Example: >lua
+    local status = require('workspace-diagnostics').status()
+    print('Cached files:', status.cached_files)
+<
+
+                                          *workspace-diagnostics.clear_cache()*
+clear_cache()
+  Clear the file cache and reset all state. This does not trigger a new
+  scan; use |:WorkspaceDiagnosticsRefresh| if you want to clear and re-scan.
+
+  Example: >lua
+    require('workspace-diagnostics').clear_cache()
+<
+
+==============================================================================
+7. HOW IT WORKS                           *workspace-diagnostics-how-it-works*
+
+1. On `LspAttach`, the plugin waits for the LSP server to fully initialize
+   (up to 10 seconds timeout).
+
+2. Collects workspace files using `git ls-files`. The result is cached
+   according to the `cache_ttl` setting.
+
+3. Filters files by extension (`allowed_extensions`) and ignore patterns
+   (`ignore_dirs`).
+
+4. Reads files asynchronously using `vim.uv` (libuv bindings) to avoid
+   blocking the UI.
+
+5. For each file, sends `textDocument/didOpen` LSP notifications. This
+   triggers the LSP server to analyze the file and report diagnostics.
+
+6. Processes files in configurable chunks with delays between chunks to
+   keep the UI responsive.
+
+Note: The plugin does not send `textDocument/didClose` notifications because
+the LSP needs to keep the documents open to report diagnostic updates when
+related files change (e.g., removing a prop from a component will update
+diagnostics in all files that use it).
+
+==============================================================================
+8. PERFORMANCE                               *workspace-diagnostics-performance*
+
+The default settings balance speed and UI responsiveness. You can tune the
+`chunk_size` and `chunk_delay` options based on your needs.
+
+For faster processing (may cause micro-stutters): >lua
+  {
+    chunk_size = 50,  -- Process more files per tick
+    chunk_delay = 0,  -- No delay between chunks
+  }
+<
+
+For smoother UI (slower total time): >lua
+  {
+    chunk_size = 5,   -- Fewer files per tick
+    chunk_delay = 10, -- Longer delay between chunks
+  }
+<
+
+Tips for large projects:
+- Increase `cache_ttl` to reduce `git ls-files` calls
+- Use `ignore_dirs` to exclude generated code directories
+- Limit `allowed_extensions` to only the file types you need
+
+==============================================================================
+vim:tw=78:ts=8:ft=help:norl:
