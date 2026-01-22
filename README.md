@@ -159,6 +159,11 @@ Progress is reported per-chunk to avoid UI spam. The two notification options ar
 
 If you don't use fidget.nvim or similar, set `lsp_progress = false` to use `vim.notify()` instead.
 
+## Related
+
+- [artemave/workspace-diagnostics.nvim](https://github.com/artemave/workspace-diagnostics.nvim) - Similar plugin that inspired this one
+- [vim.lsp.buf.workspace_diagnostics()](https://github.com/neovim/neovim/pull/34262) - Native Neovim support (merged June 2025, available in nightly). Uses the LSP `workspace/diagnostic` method which requires server support - TypeScript language servers [don't support this yet](https://github.com/typescript-language-server/typescript-language-server/issues/253) ([tsgo tracking issue](https://github.com/microsoft/typescript-go/issues/2169)). This plugin uses `textDocument/didOpen` instead, which works with any LSP server.
+
 ## License
 
 MIT
